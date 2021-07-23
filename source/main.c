@@ -7,6 +7,8 @@
  *	I acknowledge all content contained herein, excluding template or example
  *	code, is my own original work.
  */
+#include <time.h>
+#include <stdlib.h>
 #include <avr/io.h>
 #ifdef _SIMULATE_
 #include "simAVRHeader.h"
@@ -588,19 +590,85 @@ int TickFct_ButtonController(int state) {
 }
 
 // SM for AI (dumb) controller.
-enum SM6_States { SM6_Start } sm6_state;
+enum SM6_States { SM6_Start, SM6_Off, SM6_On } sm6_state;
 int TickFct_AIController(int state) {
+    // Local vars
+    static unsigned int randomNum;
+
     // Transitions
     switch (state) {
       case SM6_Start:
+          randomNum = 0;
+          state = SM6_Off;
+          break;
+      case SM6_Off:
+          // Turns on the AI (dumb) controller when activated
+          if (enableAI == 1) {
+            // start player controller.
+            state = SM6_On;
+          } else {
+            state = SM6_Off;
+          }
+          break;
+      case SM6_On:
+          if (enableAI == 1) {
+            // start player controller.
+            state = SM6_On;
+          } else {
+            state = SM6_Off;
+          }
           break;
       default:
           break;
     }
+
     // Actions
     switch (state) {
       case SM6_Start:
           break;
+
+      case SM6_Off:
+          break;
+
+      case SM6_On:
+          // Picks a move (gens a randomNum between 0 and 9)
+          randomNum = rand() % 10;
+
+          // Calculates possible moves
+          unsigned char aiRight = frames_x[4];
+          unsigned char aiLeft = frames_x[4];
+          aiRight = aiRight >> 1;
+          aiLeft = aiLeft << 1;
+
+          // Checks what move to make.
+          if (randomNum < 4) {
+            // Don't move
+
+          } else if (randomNum < 7) {
+
+            // try move left.
+            if ( aiLeft == 0xC0 ) {
+              // No Move.
+            } else {
+              // move left
+              frames_x[4] = aiLeft;
+            }
+
+          } else if (randomNum < 10) {
+
+            // try move right.
+            if ( aiRight == 0x03 ) {
+              // No Move.
+            } else {
+              // move left
+              frames_x[4] = aiRight;
+            }
+
+          } else {
+
+          }
+          break;
+
       default:
           break;
     }
@@ -669,7 +737,7 @@ int TickFct_Ball(int state) {
 
 enum SM10_States { SM10_Start, SM10_rOff, SM10_On, SM10_Cleanup } sm10_state;
 int TickFct_ResetButton(int state) {
-    static unsigned int cleanupCount = 0;
+    // static unsigned int cleanupCount = 0;
     // Transitions
     switch (state) {
       case SM10_Start:
@@ -718,7 +786,7 @@ int TickFct_ResetButton(int state) {
           break;
       case SM10_Cleanup:
           gameReset = 0;
-          cleanupCount = 0;
+          // cleanupCount = 0;
           break;
       default:
           break;
@@ -765,6 +833,13 @@ int main(void) {
 	  tasks[i].TickFct = &TickFct_Game;
 	  i++;
 
+    // SM10 (Reset Button SM)
+    tasks[i].state = SM10_Start;
+	  tasks[i].period = 100;
+	  tasks[i].elapsedTime = tasks[i].period;
+	  tasks[i].TickFct = &TickFct_ResetButton;
+    i++;
+
     // SM4 (Joystick SM)
     tasks[i].state = SM4_Start;
 	  tasks[i].period = 500;
@@ -772,11 +847,12 @@ int main(void) {
 	  tasks[i].TickFct = &TickFct_JoyController;
     i++;
 
-    // SM10 (Reset Button SM)
-    tasks[i].state = SM10_Start;
-	  tasks[i].period = 100;
+    // SM6 (Dumb AI SM)
+    tasks[i].state = SM6_Start;
+	  tasks[i].period = 500;
 	  tasks[i].elapsedTime = tasks[i].period;
-	  tasks[i].TickFct = &TickFct_ResetButton;
+	  tasks[i].TickFct = &TickFct_AIController;
+
 
     // Setup System Period & Timer to ON.
     TimerSet(tasksGCD);
