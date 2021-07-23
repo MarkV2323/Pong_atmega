@@ -51,9 +51,33 @@ void A2D_init() {
 	//	    analog to digital conversions.
 }
 
+// Function for setting A2D Pin.
+void Set_A2D_Pin(unsigned char pinNum) {
+ADMUX = (pinNum <= 0x07) ? pinNum : ADMUX;
+// Allow channel to stabilize
+static unsigned char i = 0;
+for ( i=0; i<15; i++ ) { asm("nop"); }
+}
+
 // globals
 unsigned char tmpA = 0x00; // Gather input from A.
 unsigned char tmpD = 0x00; // Write output to LEDs and speaker.
+
+// menu
+// unsigned char enableMenu = 0x01;
+
+// game vars
+unsigned char gameStart = 0x00; // 0 for off, 1 for on to start game.
+unsigned char gameType = 0x00; // Game type to be spawned. (1, 2 or 3)
+unsigned char gameOver = 0x00; // 1 for gameOver, 0 for game online.
+unsigned char gameReset = 0x00;
+
+// controller vars
+unsigned char enableReset = 0x00; // 1 for on, allows reset back to menu.
+unsigned char enableBall = 0x00; // 1 for on, ball can start playing.
+unsigned char enableJoy = 0x00; // 1 for on, controlls player 1.
+unsigned char enableBut = 0x00; // 1 for on, controlls player 2.
+unsigned char enableAI  = 0x00; // 1 for on, controlls AI.
 
 // Contains frames of the current board.
 unsigned char frames_x[] = {0x70, 0x00, 0x00, 0x00, 0x0E};
@@ -111,8 +135,8 @@ int TickFct_DrawGame(int state) {
 
 // SM for main menu on LEDs.
 enum ButtonPress { buttonOff, buttonOn } buttonpress;
-enum SM2_States { SM2_Start, SM2_Off, SM2_Game1, SM2_Game2, SM2_Game3
-                } sm2_state;
+enum SM2_States { SM2_Start, SM2_Off, SM2_Game1, SM2_Game2, SM2_Game3,
+                  SM2_GameOn} sm2_state;
 int TickFct_MainMenu(int state) {
 
     // Local varibles
@@ -169,8 +193,9 @@ int TickFct_MainMenu(int state) {
               // Only starts game if button was released, and now pressed.
               if (buttonPressed == buttonOff && tmpA == 0x02) {
                 // Button 1, A1 has been activated. Start Game.
-                tmpD = tmpD & 0x80;
-                PORTD = tmpD;
+                gameStart = 1;
+                gameType = 1;
+                state = SM2_GameOn;
               } else if (buttonPressed == buttonOn && tmpA == 0x00) {
                 // Buttons has been released
                 buttonPressed = buttonOff;
@@ -206,8 +231,9 @@ int TickFct_MainMenu(int state) {
               // Only starts game if button was released, and now pressed.
               if (buttonPressed == buttonOff && tmpA == 0x04) {
                 // Button 2, A2 has been activated. Start Game.
-                tmpD = tmpD & 0x80;
-                PORTD = tmpD;
+                gameStart = 1;
+                gameType = 2;
+                state = SM2_GameOn;
               } else if (buttonPressed == buttonOn && tmpA == 0x00) {
                 // Buttons has been released
                 buttonPressed = buttonOff;
@@ -242,8 +268,9 @@ int TickFct_MainMenu(int state) {
               // Only starts game if button was released, and now pressed.
               if (buttonPressed == buttonOff && tmpA == 0x08) {
                 // Button 2, A2 has been activated. Start Game.
-                tmpD = tmpD & 0x80;
-                PORTD = tmpD;
+                gameStart = 2;
+                gameType = 1;
+                state = SM2_GameOn;
               } else if (buttonPressed == buttonOn && tmpA == 0x00) {
                 // Buttons has been released
                 buttonPressed = buttonOff;
@@ -274,6 +301,18 @@ int TickFct_MainMenu(int state) {
               idleTimer++;
               break;
 
+          case SM2_GameOn:
+              if (gameReset == 1) {
+                // cleans up
+                gameStart = 0;
+                gameType = 0;
+                buttonPressed = buttonOff;
+                // Go back to SM2_Off
+                state = SM2_Off;
+              } else {
+                state = SM2_GameOn;
+              }
+              break;
           default:
               break;
       }
@@ -286,6 +325,8 @@ int TickFct_MainMenu(int state) {
            case SM2_Off:
               // Resets timers.
               idleTimer = 0;
+              // Keeps GameStart Off.
+              gameStart = 0;
               break;
 
            case SM2_Game1:
@@ -297,11 +338,392 @@ int TickFct_MainMenu(int state) {
            case SM2_Game3:
                break;
 
+           case SM2_GameOn:
+               break;
+
            default:
               break;
       }
 
       return state;
+}
+
+// SM for pong game.
+enum SM3_States { SM3_Start, SM3_Off, SM3_Play, SM3_GameOver, SM3_CleanUp
+                } sm3_state;
+int TickFct_Game(int state) {
+
+    // Local varibles
+    static unsigned char scoreTimer;
+
+    // Transitions
+    switch (state) {
+      case SM3_Start:
+          // Init varibles.
+          scoreTimer = 0;
+          // Goes to SM3_Off
+          state = SM3_Off;
+          break;
+
+      case SM3_Off:
+          // Decides settings for SM3_Play, and how to start SM3_Play
+          if (gameStart == 1) {
+            // Begin a new game.
+            scoreTimer = 0;
+            state = SM3_Play;
+            // Disables main menu.
+            // enableMenu = 0;
+          } else {
+            // Stay in non game phase.
+            state = SM3_Off;
+          }
+          break;
+
+      case SM3_Play:
+          // When gameOver is 1, go into GameOver state.
+          if (gameOver == 1) {
+            state = SM3_GameOver;
+          } else {
+            state = SM3_Play;
+          }
+
+          // If reset is pressed, go str8 to cleanup.
+          if (gameReset == 1) {
+            state = SM3_CleanUp;
+          }
+
+          break;
+
+      case SM3_GameOver:
+          // After 10 seconds, move to SM3_CleanUp
+          if (scoreTimer == 100) {
+            state = SM3_CleanUp;
+          } else {
+            state = SM3_GameOver;
+            scoreTimer++;
+          }
+          break;
+
+      case SM3_CleanUp:
+          // After cleanup is done, go back to SM3_Off
+          state = SM3_Off;
+          break;
+
+      default:
+          break;
+    }
+
+    // Actions
+    switch (state) {
+      case SM3_Start:
+          // Do nothing.
+          break;
+
+      case SM3_Off:
+          // Do nothing.
+          break;
+
+      case SM3_Play:
+          // Allow reset button to be pressed.
+          enableReset = 1;
+
+          // Enable player controllers, enable ball SM.
+          if (gameType == 1) {
+            // Enable joystick and AI.
+            enableJoy = 1;
+            enableAI = 1;
+            // Enable ball
+            enableBall = 1;
+          } else if (gameType == 2) {
+            // Enable joystick and button.
+            enableJoy = 1;
+            enableBut = 1;
+            // Enable ball
+            enableBall = 1;
+          } else if (gameType == 3) {
+            // Enable both AIs
+            // TODO
+            // Enable ball
+            enableBall = 1;
+          }
+          break;
+
+      case SM3_GameOver:
+          // Stop player controllers from working / being able to move.
+          // Flash LED lights on winning side.
+          // Start playing music from speaker.
+          break;
+
+      case SM3_CleanUp:
+          // Disables all controllers.
+          enableJoy = 0;
+          enableBut = 0;
+          enableBall = 0;
+          enableAI = 0;
+          // Reset scoreTimer back to 0.
+          scoreTimer = 0;
+          // Reset matrix back to defaults.
+          frames_x[0] = 0x70;
+          frames_x[1] = 0x00;
+          frames_x[2] = 0x00;
+          frames_x[3] = 0x00;
+          frames_x[4] = 0x0E;
+          // Re enables Menu
+          enableReset = 0;
+
+          break;
+
+      default:
+          break;
+    }
+
+    return state;
+}
+
+// SM for joystick player controller.
+enum SM4_States { SM4_Start, SM4_Off, SM4_On } sm4_state;
+int TickFct_JoyController(int state) {
+    // Local vars
+    static int joystickInput;
+
+    // Transitions
+    switch (state) {
+      case SM4_Start:
+          // init varibles
+          joystickInput = 512;
+          // go to SM4_Off
+          state = SM4_Off;
+          break;
+
+      case SM4_Off:
+          // Turns on the player controller when activated
+          if (enableJoy == 1) {
+            // start player controller.
+            state = SM4_On;
+          } else {
+            state = SM4_Off;
+          }
+          break;
+
+      case SM4_On:
+          // Continues to gather input unless turned off.
+          if (enableJoy == 1) {
+            state = SM4_On;
+          } else {
+            state = SM4_Off;
+          }
+          break;
+
+      default:
+          break;
+    }
+
+    // Actions
+    switch (state) {
+      case SM4_Start:
+          break;
+
+      case SM4_Off:
+          break;
+
+      case SM4_On:
+          // Gather input from joystick.
+          joystickInput = ADC;
+
+          unsigned char playerRight = frames_x[0];
+          unsigned char playerLeft = frames_x[0];
+          playerRight = playerRight >> 1;
+          playerLeft = playerLeft << 1;
+
+          // Checks type of input.
+          if (joystickInput < 200) {
+            // Left Move
+            // Checks if out of bounds (doesn't move)
+            if ( playerLeft == 0xC0 ) {
+              // No Move.
+            } else {
+              // move left
+              frames_x[0] = playerLeft;
+            }
+
+          } else if (joystickInput > 800) {
+            // Right Move
+            // Checks if out of bounds (doesn't move)
+            if ( playerRight == 0x03 ) {
+              // No Move.
+            } else {
+              // move left
+              frames_x[0] = playerRight;
+            }
+
+          } else {
+            // Joystick not tilted enough to warent move.
+          }
+          break;
+
+      default:
+          break;
+    }
+    return state;
+}
+
+// SM for button player controller.
+enum SM5_States { SM5_Start } sm5_state;
+int TickFct_ButtonController(int state) {
+    // Transitions
+    switch (state) {
+      case SM5_Start:
+          break;
+      default:
+          break;
+    }
+    // Actions
+    switch (state) {
+      case SM5_Start:
+          break;
+      default:
+          break;
+    }
+    return state;
+}
+
+// SM for AI (dumb) controller.
+enum SM6_States { SM6_Start } sm6_state;
+int TickFct_AIController(int state) {
+    // Transitions
+    switch (state) {
+      case SM6_Start:
+          break;
+      default:
+          break;
+    }
+    // Actions
+    switch (state) {
+      case SM6_Start:
+          break;
+      default:
+          break;
+    }
+    return state;
+}
+
+// SM for speaker.
+enum SM7_States { SM7_Start } sm7_state;
+int TickFct_Speaker(int state) {
+    // Transitions
+    switch (state) {
+      case SM7_Start:
+          break;
+      default:
+          break;
+    }
+    // Actions
+    switch (state) {
+      case SM7_Start:
+          break;
+      default:
+          break;
+    }
+    return state;
+}
+
+// SM for winning LED flashing
+enum SM8_States { SM8_Start } sm8_state;
+int TickFct_Celebrate(int state) {
+    // Transitions
+    switch (state) {
+      case SM8_Start:
+          break;
+      default:
+          break;
+    }
+    // Actions
+    switch (state) {
+      case SM8_Start:
+          break;
+      default:
+          break;
+    }
+    return state;
+}
+
+// SM for ball object
+enum SM9_States { SM9_Start } sm9_state;
+int TickFct_Ball(int state) {
+    // Transitions
+    switch (state) {
+      case SM9_Start:
+          break;
+      default:
+          break;
+    }
+    // Actions
+    switch (state) {
+      case SM9_Start:
+          break;
+      default:
+          break;
+    }
+    return state;
+}
+
+enum SM10_States { SM10_Start, SM10_rOff, SM10_On, SM10_Cleanup } sm10_state;
+int TickFct_ResetButton(int state) {
+    static unsigned int cleanupCount = 0;
+    // Transitions
+    switch (state) {
+      case SM10_Start:
+          // init & go to SM10_rOff
+          state = SM10_rOff;
+          break;
+      case SM10_rOff:
+          // If enabled, moves to on.
+          if (enableReset == 1) {
+            state = SM10_On;
+          } else {
+            state = SM10_rOff;
+          }
+          break;
+      case SM10_On:
+          if (enableReset == 0 && gameReset == 0) {
+            state = SM10_rOff;
+          } else if (gameReset == 1) {
+            state = SM10_Cleanup;
+          } else {
+            state = SM10_On;
+          }
+          break;
+      case SM10_Cleanup:
+          state = SM10_rOff;
+          break;
+      default:
+          break;
+    }
+
+    // Actions
+    switch (state) {
+      case SM10_Start:
+          break;
+      case SM10_rOff:
+          break;
+      case SM10_On:
+          // Check if button has been pressed.
+          tmpA = ~PINA & 0xFE; // exculuding A0 (joystick)
+          if (tmpA == 0x08) { // A3 online
+            // reset current game, go back to menu.
+            gameReset = 1;
+          } else {
+            // nothing
+          }
+          break;
+      case SM10_Cleanup:
+          gameReset = 0;
+          cleanupCount = 0;
+          break;
+      default:
+          break;
+    }
+    return state;
 }
 
 // Main Funcntion
@@ -314,7 +736,10 @@ int main(void) {
     DDRD = 0xFF; PORTD = 0x00; // PortD as output
 
     // Start A2D conversion
-    // A2D_init();
+    A2D_init();
+
+    // Set A2D on A0
+    Set_A2D_Pin(0x00);
 
     // Setup Task List
     unsigned char i = 0;
@@ -326,11 +751,32 @@ int main(void) {
 	  tasks[i].TickFct = &TickFct_DrawGame;
 	  i++;
 
-    // SM2 (Main Menu LEDs)
+    // SM2 (Main Menu LEDs SM)
     tasks[i].state = SM2_Start;
 	  tasks[i].period = 100;
 	  tasks[i].elapsedTime = tasks[i].period;
 	  tasks[i].TickFct = &TickFct_MainMenu;
+	  i++;
+
+    // SM3 (Game SM)
+    tasks[i].state = SM3_Start;
+	  tasks[i].period = 100;
+	  tasks[i].elapsedTime = tasks[i].period;
+	  tasks[i].TickFct = &TickFct_Game;
+	  i++;
+
+    // SM4 (Joystick SM)
+    tasks[i].state = SM4_Start;
+	  tasks[i].period = 500;
+	  tasks[i].elapsedTime = tasks[i].period;
+	  tasks[i].TickFct = &TickFct_JoyController;
+    i++;
+
+    // SM10 (Reset Button SM)
+    tasks[i].state = SM10_Start;
+	  tasks[i].period = 100;
+	  tasks[i].elapsedTime = tasks[i].period;
+	  tasks[i].TickFct = &TickFct_ResetButton;
 
     // Setup System Period & Timer to ON.
     TimerSet(tasksGCD);
