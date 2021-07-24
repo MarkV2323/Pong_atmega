@@ -1,6 +1,6 @@
 // Must include
 #include <avr/interrupt.h>
-#define tasksSize 7
+#define tasksSize 8
 #define tasksGCD 1
 
 // Important Stuff

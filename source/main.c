@@ -15,6 +15,32 @@
 #include "timer.h"
 #endif
 
+// Stuff for PWM
+void set_PWM(double frequency) {
+    static double current_frequency; // Keeps track of current set frequency
+
+    if (frequency != current_frequency) {
+        if (!frequency) { TCCR3B &= 0x08; } // stops timer
+        else { TCCR3B |= 0x03; } // resumes timer
+
+        if (frequency < 0.954) { OCR3A = 0xFFFF; }
+        else if (frequency > 31250) { OCR3A = 0x0000; }
+        else { OCR3A = (short) (8000000 / (128 * frequency)) - 1; }
+
+        TCNT3 = 0;
+        current_frequency = frequency;
+    }
+}
+void PWM_on() {
+    TCCR3A = (1 << COM3A0);
+    TCCR3B = (1 << WGM32) | (1 << CS31) | (1 << CS30);
+    set_PWM(0);
+}
+void PWM_off() {
+    TCCR3A = 0x00;
+    TCCR3B = 0x00;
+}
+
 // Method for handling writing to register.
 // Modified: RCLK (C2 and C4) and SRCLR(C3 and C5) are independent of each other.
 void transmit_data(unsigned char data, unsigned char regi) {
@@ -81,10 +107,15 @@ unsigned char enableJoy = 0x00; // 1 for on, controlls player 1.
 unsigned char enableBut = 0x00; // 1 for on, controlls player 2.
 unsigned char enableAI  = 0x00; // 1 for on, controlls AI.
 
+// celebrate & noise vars
+unsigned char enableCel = 0x00;
+unsigned char enableNoise = 0x00;
+unsigned char ledSeq[] = {0x00, 0x22, 0x11, 0x44, 0x22, 0x11, 0x00}; // [6]
+
 // Contains frames of the current board.
 // Do not modifiy frames_y[], SM1, DrawGame() depends on frames_y[].
 // Only modifiy if also modifiying SM1.
-unsigned char frames_x[] = {0x70, 0x20, 0x00, 0x00, 0x0E};
+unsigned char frames_x[] = {0x70, 0x20, 0x00, 0x00, 0x0E}; // [4]
 unsigned char frames_y[] = {0x1E, 0x1D, 0x1B, 0x17, 0x0F};
 unsigned char frames_index = 0;
 
@@ -373,12 +404,14 @@ int TickFct_Game(int state) {
 
     // Local varibles
     static unsigned char scoreTimer;
+    static unsigned int musicTimer;
 
     // Transitions
     switch (state) {
       case SM3_Start:
           // Init varibles.
           scoreTimer = 0;
+          musicTimer = 0;
           // Goes to SM3_Off
           state = SM3_Off;
           break;
@@ -417,6 +450,18 @@ int TickFct_Game(int state) {
           if (scoreTimer == 50) {
             state = SM3_CleanUp;
           } else {
+            // Music play every 500ms
+            if (musicTimer <= 5) {
+              // turn music off, reset musicTimer
+              set_PWM(0);
+              musicTimer++;
+            } else if (musicTimer >= 11) {
+              musicTimer = 0;
+            } else {
+              set_PWM(261.63);
+              musicTimer++;
+            }
+
             state = SM3_GameOver;
             scoreTimer++;
           }
@@ -476,8 +521,7 @@ int TickFct_Game(int state) {
           enableAI = 0;
 
           // Flash LED lights on winning side.
-
-          // Start playing music from speaker.
+          enableCel = 1;
 
           break;
 
@@ -500,6 +544,12 @@ int TickFct_Game(int state) {
 
           // Re enables Menu
           enableReset = 0;
+
+          // Disable Celbrate and enableNoise
+          enableCel = 0;
+          // enableNoise = 0;
+          musicTimer = 0;
+          set_PWM(0);
 
           // resets GameOver
           gameOver = 0;
@@ -718,32 +768,118 @@ int TickFct_AIController(int state) {
     return state;
 }
 
-// SM for speaker.
-enum SM7_States { SM7_Start } sm7_state;
-int TickFct_Speaker(int state) {
-    // Transitions
-    switch (state) {
-      case SM7_Start:
-          break;
-      default:
-          break;
-    }
-    // Actions
-    switch (state) {
-      case SM7_Start:
-          break;
-      default:
-          break;
-    }
-    return state;
-}
+// // SM for speaker.
+// enum SM7_States { SM7_Start, SM7_wait, SM7_High, SM7_Low } sm7_state;
+// int TickFct_Speaker(int state) {
+//     // Local varibles
+//     static double pwm_count;
+//     static double noiseAmount;
+//     // Transitions
+//     switch (state) {
+//       case SM7_Start:
+//           // init vars
+//           pwm_count = 0;
+//           noiseAmount = 0;
+//           if (enableNoise == 1) {
+//             state = SM7_wait;
+//           } else {
+//             state = SM7_Start;
+//           }
+//           break;
+//
+//       case SM7_wait:
+//           break;
+//
+//       case SM7_High:
+//           // Goes back to SM7_wait if no input
+//           if (noiseAmount == 5000) {
+//               // go to SM7_wait
+//               state = SM7_wait;
+//               pwm_count = 0;
+//               noiseAmount = 0;
+//               break;
+//           } else {
+//               noiseAmount++;
+//               // stay in SM4_High
+//               state = SM7_High;
+//           }
+//
+//           // Checks whether or not to go to low using counter.
+//           if (pwm_count >= 0x02) {
+//               // go to Low, reset pulse Counter.
+//               state = SM7_Low;
+//               pwm_count = 0;
+//           } else {
+//               // Stay in High, increment pulseCounter
+//               state = SM7_High;
+//               pwm_count++;
+//           }
+//           break;
+//
+//       case SM7_Low:
+//           // Checks whether or not to go to high using counter.
+//           if (pwm_count >= 0x02) {
+//               // go to High, reset pulse Counter.
+//               state = SM7_High;
+//               pwm_count = 0;
+//           } else {
+//               // Stay in Low, increment pulseCounter
+//               state = SM7_Low;
+//               pwm_count++;
+//           }
+//           break;
+//
+//       default:
+//           break;
+//     }
+//     // Actions
+//     switch (state) {
+//       case SM7_Start:
+//           break;
+//
+//       case SM7_wait:
+//           break;
+//
+//       case SM7_High:
+//           PORTB = 0x01;
+//           break;
+//
+//       case SM7_Low:
+//           PORTB = 0x00;
+//           break;
+//
+//       default:
+//           break;
+//     }
+//     return state;
+// }
 
 // SM for winning LED flashing
-enum SM8_States { SM8_Start } sm8_state;
+enum SM8_States { SM8_Start, SM8_On } sm8_state;
 int TickFct_Celebrate(int state) {
+    // Local vars
+    static unsigned char ledCounter;
+    static unsigned char ledIndex;
+
     // Transitions
     switch (state) {
       case SM8_Start:
+          ledCounter = 0;
+          ledIndex = 0;
+          if (enableCel == 1) {
+            state = SM8_On;
+          } else {
+            state = SM8_Start;
+          }
+          break;
+      case SM8_On:
+          if (ledCounter == 50) {
+              // Go back to start.
+              state = SM8_Start;
+          } else {
+              state = SM8_On;
+              ledCounter++;
+          }
           break;
       default:
           break;
@@ -751,6 +887,14 @@ int TickFct_Celebrate(int state) {
     // Actions
     switch (state) {
       case SM8_Start:
+          break;
+      case SM8_On:
+          // Play current LED sequence
+          if (ledIndex == 7) {
+            ledIndex = 0;
+          }
+          PORTD = ((tmpD & 0x80) | ledSeq[ledIndex]);
+          ledIndex++;
           break;
       default:
           break;
@@ -1120,9 +1264,13 @@ int main(void) {
 
     // PORTS
     DDRA = 0x00; PORTA = 0xFF; // PortA as input
-    // DDRB = 0xFF; PORTB = 0x00; // PortB as output
+    DDRB = 0xFF; PORTB = 0x00; // PortB as output
     DDRC = 0xFF; PORTC = 0x00; // PortC as output
     DDRD = 0xFF; PORTD = 0x00; // PortD as output
+
+    // PWM on
+    set_PWM(0); // No sound.
+    PWM_on();
 
     // Start A2D conversion
     A2D_init();
@@ -1180,10 +1328,24 @@ int main(void) {
     tasks[i].period = 500;
     tasks[i].elapsedTime = tasks[i].period;
     tasks[i].TickFct = &TickFct_Ball;
+    i++;
+
+    // SM 8 (Led celebrate)
+    tasks[i].state = SM8_Start;
+    tasks[i].period = 100;
+    tasks[i].elapsedTime = tasks[i].period;
+    tasks[i].TickFct = &TickFct_Celebrate;
+
+    // // SM 7 (Led celebrate)
+    // tasks[i].state = SM7_Start;
+    // tasks[i].period = 1;
+    // tasks[i].elapsedTime = tasks[i].period;
+    // tasks[i].TickFct = &TickFct_Speaker;
 
     // Setup System Period & Timer to ON.
     TimerSet(tasksGCD);
     TimerOn();
+
     while (1) {}
     return 1;
 }
