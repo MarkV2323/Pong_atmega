@@ -64,9 +64,9 @@ for ( i=0; i<15; i++ ) { asm("nop"); }
 // globals
 unsigned char tmpA = 0x00; // Gather input from A.
 unsigned char tmpD = 0x00; // Write output to LEDs and speaker.
-
-// menu
-// unsigned char enableMenu = 0x01;
+unsigned char tmpMove;     // tracks moves made by player 1.
+unsigned char p1Score;     // Contains p1 Score.
+unsigned char p2Score;     // Contains p2 Score.
 
 // game vars
 unsigned char gameStart = 0x00; // 0 for off, 1 for on to start game.
@@ -82,8 +82,10 @@ unsigned char enableBut = 0x00; // 1 for on, controlls player 2.
 unsigned char enableAI  = 0x00; // 1 for on, controlls AI.
 
 // Contains frames of the current board.
-unsigned char frames_x[] = {0x70, 0x00, 0x00, 0x00, 0x0E};
-unsigned char frames_y[] = {0x1E, 0x1D, 0x0B, 0x17, 0x0F}; // dnt modifiy
+// Do not modifiy frames_y[], SM1, DrawGame() depends on frames_y[].
+// Only modifiy if also modifiying SM1.
+unsigned char frames_x[] = {0x70, 0x20, 0x00, 0x00, 0x0E};
+unsigned char frames_y[] = {0x1E, 0x1D, 0x1B, 0x17, 0x0F};
 unsigned char frames_index = 0;
 
 // SM for drawing game onto Matrix.
@@ -197,6 +199,9 @@ int TickFct_MainMenu(int state) {
                 // Button 1, A1 has been activated. Start Game.
                 gameStart = 1;
                 gameType = 1;
+                tmpD = (tmpD & 0x80);
+                PORTD = tmpD;
+                // Clears LEDs
                 state = SM2_GameOn;
               } else if (buttonPressed == buttonOn && tmpA == 0x00) {
                 // Buttons has been released
@@ -235,6 +240,8 @@ int TickFct_MainMenu(int state) {
                 // Button 2, A2 has been activated. Start Game.
                 gameStart = 1;
                 gameType = 2;
+                tmpD = (tmpD & 0x80);
+                PORTD = tmpD;
                 state = SM2_GameOn;
               } else if (buttonPressed == buttonOn && tmpA == 0x00) {
                 // Buttons has been released
@@ -272,6 +279,8 @@ int TickFct_MainMenu(int state) {
                 // Button 2, A2 has been activated. Start Game.
                 gameStart = 2;
                 gameType = 1;
+                tmpD = (tmpD & 0x80);
+                PORTD = tmpD;
                 state = SM2_GameOn;
               } else if (buttonPressed == buttonOn && tmpA == 0x00) {
                 // Buttons has been released
@@ -305,6 +314,13 @@ int TickFct_MainMenu(int state) {
 
           case SM2_GameOn:
               if (gameReset == 1) {
+                // cleans up
+                gameStart = 0;
+                gameType = 0;
+                buttonPressed = buttonOff;
+                // Go back to SM2_Off
+                state = SM2_Off;
+              } else if (gameOver == 1) {
                 // cleans up
                 gameStart = 0;
                 gameType = 0;
@@ -397,8 +413,8 @@ int TickFct_Game(int state) {
           break;
 
       case SM3_GameOver:
-          // After 10 seconds, move to SM3_CleanUp
-          if (scoreTimer == 100) {
+          // After 5 seconds, move to SM3_CleanUp
+          if (scoreTimer == 50) {
             state = SM3_CleanUp;
           } else {
             state = SM3_GameOver;
@@ -448,12 +464,21 @@ int TickFct_Game(int state) {
             // Enable ball
             enableBall = 1;
           }
+
           break;
 
       case SM3_GameOver:
           // Stop player controllers from working / being able to move.
+          // Disables all controllers.
+          enableJoy = 0;
+          enableBut = 0;
+          enableBall = 0;
+          enableAI = 0;
+
           // Flash LED lights on winning side.
+
           // Start playing music from speaker.
+
           break;
 
       case SM3_CleanUp:
@@ -462,16 +487,26 @@ int TickFct_Game(int state) {
           enableBut = 0;
           enableBall = 0;
           enableAI = 0;
+
           // Reset scoreTimer back to 0.
           scoreTimer = 0;
+
           // Reset matrix back to defaults.
           frames_x[0] = 0x70;
-          frames_x[1] = 0x00;
+          frames_x[1] = 0x20;
           frames_x[2] = 0x00;
           frames_x[3] = 0x00;
           frames_x[4] = 0x0E;
+
           // Re enables Menu
           enableReset = 0;
+
+          // resets GameOver
+          gameOver = 0;
+
+          // Clear LEDs
+          tmpD = (tmpD & 0x80);
+          PORTD = tmpD;
 
           break;
 
@@ -483,6 +518,7 @@ int TickFct_Game(int state) {
 }
 
 // SM for joystick player controller.
+enum playerMoved { moveRight, moveLeft, moveNull} sm4_movement;
 enum SM4_States { SM4_Start, SM4_Off, SM4_On } sm4_state;
 int TickFct_JoyController(int state) {
     // Local vars
@@ -493,6 +529,7 @@ int TickFct_JoyController(int state) {
       case SM4_Start:
           // init varibles
           joystickInput = 512;
+          tmpMove = moveNull;
           // go to SM4_Off
           state = SM4_Off;
           break;
@@ -543,9 +580,11 @@ int TickFct_JoyController(int state) {
             // Checks if out of bounds (doesn't move)
             if ( playerLeft == 0xC0 ) {
               // No Move.
+              tmpMove = moveNull;
             } else {
               // move left
               frames_x[0] = playerLeft;
+              tmpMove = moveLeft;
             }
 
           } else if (joystickInput > 800) {
@@ -553,19 +592,23 @@ int TickFct_JoyController(int state) {
             // Checks if out of bounds (doesn't move)
             if ( playerRight == 0x03 ) {
               // No Move.
+              tmpMove = moveNull;
             } else {
               // move left
               frames_x[0] = playerRight;
+              tmpMove = moveRight;
             }
 
           } else {
             // Joystick not tilted enough to warent move.
+            tmpMove = moveNull;
           }
           break;
 
       default:
           break;
     }
+
     return state;
 }
 
@@ -716,19 +759,297 @@ int TickFct_Celebrate(int state) {
 }
 
 // SM for ball object
-enum SM9_States { SM9_Start } sm9_state;
+enum SM9_Directions { north, south, northRight, northLeft, southRight,
+                      southLeft } sm9_directions;
+enum SM9_ContactType { centerT, rightT, leftT, noneT } sm9_contactType;
+enum SM9_States { SM9_Start, SM9_Spawn, SM9_Move, SM9_Goal } sm9_state;
 int TickFct_Ball(int state) {
+    // Local vars
+    static unsigned char spawnTimer;
+    static unsigned char goalScored;
+    static unsigned char contactType;
+
+    static unsigned char tmpX;            // Used for current X position.
+    static unsigned char tmpDirection;    // Used for current direction.
+    static unsigned char tmpYlevel;       // Used for current Y position.
+    static unsigned char tmpMask;         // Used for finding contact.
+
+    // Used in calculating possible move
+    static unsigned char possibleX;
+    static unsigned char possibleY;
+
+
     // Transitions
     switch (state) {
+
       case SM9_Start:
+          // init vars
+          spawnTimer = 0;
+          goalScored = 0;
+          tmpDirection = south;
+          contactType = noneT;
+          tmpYlevel = 1;
+          tmpX = 0x20; // Row 2, init spawn.
+          // move to Spawn
+          if (enableBall == 1) {
+            // spawn the ball.
+            tmpX = 0x20; // Row 2, init spawn.
+            tmpYlevel = 1;
+            frames_x[tmpYlevel] = tmpX;
+            // Reset players.
+            frames_x[0] = 0x70;
+            frames_x[4] = 0x0E;
+            state = SM9_Spawn;
+          }
           break;
+
+      case SM9_Spawn:
+          // check if ball is still alive.
+          if (enableBall == 0) {
+            // reset spawnTimer
+            spawnTimer = 0;
+            state = SM9_Start;
+          }
+          // wait 3 second following Joystick player b4 calculating a move.
+          if (spawnTimer >= 6) {
+            // move
+            state = SM9_Move;
+          } else if (spawnTimer < 6) {
+            // move with joystick player.
+            if (tmpMove == moveNull) {
+              // no movement tracked, stay in position.
+            } else if (tmpMove == moveRight) {
+              // right movement tracked, move right 1 bit.
+              // gets current positionof ball.
+              tmpX = frames_x[1];
+              // moves 1 bit to right.
+              tmpX = tmpX >> 1;
+              // write new tmpX
+              frames_x[1] = tmpX;
+            } else if (tmpMove == moveLeft) {
+              // left movement tracked, move left 1 bit.
+              // gets current positionof ball.
+              tmpX = frames_x[1];
+              // moves 1 bit to left.
+              tmpX = tmpX << 1;
+              // write new tmpX
+              frames_x[1] = tmpX;
+            }
+
+            // Increment spawnTimer.
+            spawnTimer++;
+          }
+
+          break;
+
+      case SM9_Move:
+          // check if ball is still alive.
+          if (enableBall == 0) {
+            // reset spawnTimer
+            spawnTimer = 0;
+            state = SM9_Start;
+          } else {
+            // continue Moving
+            state = SM9_Move;
+          }
+
+          // check if goal has been scored.
+          if (goalScored == 1) {
+            // Player 1 scored, add point, respawn ball, execute goalScore SMs.
+            p1Score++;
+            // Write LED score.
+            switch (p1Score) {
+              case 0:
+                tmpD = (tmpD | 0x00);
+                PORTD = tmpD;
+                break;
+              case 1:
+                tmpD = (tmpD | 0x01);
+                PORTD = tmpD;
+                break;
+              case 2:
+                tmpD = (tmpD | 0x02);
+                PORTD = tmpD;
+                break;
+              case 3:
+                tmpD = (tmpD | 0x04);
+                PORTD = tmpD;
+                break;
+              default:
+                break;
+            }
+            // Check for game over.
+            if (p1Score == 3) {
+              // Game is over!
+              gameOver = 1;
+              p1Score = 0;
+              p2Score = 0;
+            }
+            // Go back to start.
+            state = SM9_Start;
+
+          } else if (goalScored == 2) {
+            // Player 2 scored, add point, respawn ball, execute goalScore SMs.
+            p2Score++;
+            // Write LED score.
+            // Write LED score.
+            switch (p2Score) {
+              case 0:
+                tmpD = (tmpD | 0x00);
+                PORTD = tmpD;
+                break;
+              case 1:
+                tmpD = (tmpD | 0x10);
+                PORTD = tmpD;
+                break;
+              case 2:
+                tmpD = (tmpD | 0x20);
+                PORTD = tmpD;
+                break;
+              case 3:
+                tmpD = (tmpD | 0x40);
+                PORTD = tmpD;
+                break;
+              default:
+                break;
+            }
+            // Check for game over.
+            if (p2Score == 3) {
+              // Game is over!
+              gameOver = 1;
+              p1Score = 0;
+              p2Score = 0;
+            }
+
+            // Go back to start.
+            state = SM9_Start;
+          }
+          break;
+
+      case SM9_Goal:
+          break;
+
       default:
           break;
     }
+
     // Actions
     switch (state) {
       case SM9_Start:
           break;
+
+      case SM9_Spawn:
+          break;
+
+      case SM9_Move:
+          // Based on the current direction, calculate the possible move.
+          tmpX = frames_x[tmpYlevel]; // Get current x pos of ball.
+          possibleX = tmpX;           // init possibleX
+          possibleY = tmpYlevel;      // init possibleY
+
+          // Calculates direction to move.
+          if ((possibleY - 1 == 0) && (tmpDirection == north) ) {
+              // Check if contact was made.
+              tmpMask = (frames_x[0] & frames_x[1]);
+              if (tmpMask == frames_x[1]) {
+                // Contact was made with top player paddle.
+                // Direction is now south.
+                tmpDirection = south;
+              } else {
+                // No Contact was made, must be a goal.
+                // Goal on top player.
+                goalScored = 1;
+              }
+
+          } else if ((possibleY + 1 == 4) && (tmpDirection == south)) {
+              // Check if contact was made.
+              tmpMask = (frames_x[3] & frames_x[4]);
+              if (tmpMask == frames_x[3]) {
+                // Contact was made with top player paddle.
+                // Direction is now north.
+                tmpDirection = north;
+              } else {
+                // No Contact was made, must be a goal.
+                // Goal on bottom player.
+                goalScored = 2;
+              }
+
+          } else {
+              // continue moving in direction.
+              tmpMask = 0x00;
+              goalScored = 0;
+          }
+
+          // Calculates possible move.
+          switch (tmpDirection) {
+
+            case north:
+                // Move north
+                possibleY--;  // decrement Y val.
+                break;
+
+            case south:
+                // move south
+                possibleY++;  // increment Y val.
+                break;
+
+            case northRight:
+                // Move north right
+                possibleY--;                // decrement Y val.
+                possibleX = possibleX >> 1; // shift right by 1.
+                break;
+
+            case northLeft:
+                // move north left
+                possibleY--;                // decrement Y val.
+                possibleX = possibleX << 1; // shift left by 1.
+                break;
+
+            case southRight:
+                // move south right
+                possibleY++;                // increment Y val.
+                possibleX = possibleX >> 1; // shift right by 1.
+                break;
+
+            case southLeft:
+                // move south left
+                possibleY++;                // increment Y val.
+                possibleX = possibleX << 1; // shift left by 1.
+                break;
+
+            default:
+                break;
+          }
+
+          // Writes new location to frames.
+          if (goalScored == 0) {
+              frames_x[tmpYlevel] = 0x00;         // Clears last position.
+              tmpX = possibleX;                   // Sets new current X
+              tmpYlevel = possibleY;              // Sets new current Y
+              frames_x[tmpYlevel] = tmpX;         // Writes new location.
+          } else if (goalScored == 1) {
+              // Goal has been scored on p1.
+              frames_x[tmpYlevel] = 0x00;         // Clears last position.
+              tmpX = possibleX;                   // Sets new current X
+              tmpYlevel = possibleY;              // Sets new current Y
+              // Writes new location with ball and player.
+              frames_x[0] = (frames_x[0] | tmpX);
+
+          } else if (goalScored == 2) {
+              // Goal has been scored on p2.
+              frames_x[tmpYlevel] = 0x00;         // Clears last position.
+              tmpX = possibleX;                   // Sets new current X
+              tmpYlevel = possibleY;              // Sets new current Y
+              // Writes new location with ball and player.
+              frames_x[4] = (frames_x[4] | tmpX);
+          }
+
+          // End of calculating move
+          break;
+
+      case SM9_Goal:
+          break;
+
       default:
           break;
     }
@@ -852,7 +1173,13 @@ int main(void) {
 	  tasks[i].period = 500;
 	  tasks[i].elapsedTime = tasks[i].period;
 	  tasks[i].TickFct = &TickFct_AIController;
+    i++;
 
+    // 9SM (Ball SM)
+    tasks[i].state = SM9_Start;
+    tasks[i].period = 500;
+    tasks[i].elapsedTime = tasks[i].period;
+    tasks[i].TickFct = &TickFct_Ball;
 
     // Setup System Period & Timer to ON.
     TimerSet(tasksGCD);
