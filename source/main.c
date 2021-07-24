@@ -663,18 +663,76 @@ int TickFct_JoyController(int state) {
 }
 
 // SM for button player controller.
-enum SM5_States { SM5_Start } sm5_state;
+enum SM5_States { SM5_Start, SM5_Off, SM5_On } sm5_state;
 int TickFct_ButtonController(int state) {
+
     // Transitions
     switch (state) {
       case SM5_Start:
+          // Go to Off
+          state = SM5_Off;
+          break;
+      case SM5_Off:
+          // Turns on the player button when activated
+          if (enableBut == 1) {
+            // start player controller.
+            state = SM5_On;
+          } else {
+            state = SM5_Off;
+          }
+          break;
+      case SM5_On:
+          // Turns on the player button when activated
+          if (enableBut == 1) {
+            // start player controller.
+            state = SM5_On;
+          } else {
+            state = SM5_Off;
+          }
           break;
       default:
           break;
     }
+
     // Actions
     switch (state) {
       case SM5_Start:
+          break;
+      case SM5_Off:
+          break;
+      case SM5_On:
+          // Read Input from tmpA
+          tmpA = ~PINA & 0xFE; // exculuding A0 (joystick)
+
+          unsigned char player2Right = frames_x[4];
+          unsigned char player2Left = frames_x[4];
+          player2Right = player2Right >> 1;
+          player2Left = player2Left << 1;
+
+          // Checks type of input.
+          if (tmpA == 0x02) {                 //A1 activated
+            // Right Move
+            // Checks if out of bounds (doesn't move)
+            if ( player2Left == 0xC0 ) {
+              // No Move.
+            } else {
+              // move left
+              frames_x[4] = player2Left;
+            }
+
+          } else if (tmpA == 0x04) {         //A2 activated
+            // Left Move
+            // Checks if out of bounds (doesn't move)
+            if ( player2Right == 0x03 ) {
+              // No Move.
+            } else {
+              // move left
+              frames_x[4] = player2Right;
+            }
+
+          } else {
+            // No Move.
+          }
           break;
       default:
           break;
@@ -767,92 +825,6 @@ int TickFct_AIController(int state) {
     }
     return state;
 }
-
-// // SM for speaker.
-// enum SM7_States { SM7_Start, SM7_wait, SM7_High, SM7_Low } sm7_state;
-// int TickFct_Speaker(int state) {
-//     // Local varibles
-//     static double pwm_count;
-//     static double noiseAmount;
-//     // Transitions
-//     switch (state) {
-//       case SM7_Start:
-//           // init vars
-//           pwm_count = 0;
-//           noiseAmount = 0;
-//           if (enableNoise == 1) {
-//             state = SM7_wait;
-//           } else {
-//             state = SM7_Start;
-//           }
-//           break;
-//
-//       case SM7_wait:
-//           break;
-//
-//       case SM7_High:
-//           // Goes back to SM7_wait if no input
-//           if (noiseAmount == 5000) {
-//               // go to SM7_wait
-//               state = SM7_wait;
-//               pwm_count = 0;
-//               noiseAmount = 0;
-//               break;
-//           } else {
-//               noiseAmount++;
-//               // stay in SM4_High
-//               state = SM7_High;
-//           }
-//
-//           // Checks whether or not to go to low using counter.
-//           if (pwm_count >= 0x02) {
-//               // go to Low, reset pulse Counter.
-//               state = SM7_Low;
-//               pwm_count = 0;
-//           } else {
-//               // Stay in High, increment pulseCounter
-//               state = SM7_High;
-//               pwm_count++;
-//           }
-//           break;
-//
-//       case SM7_Low:
-//           // Checks whether or not to go to high using counter.
-//           if (pwm_count >= 0x02) {
-//               // go to High, reset pulse Counter.
-//               state = SM7_High;
-//               pwm_count = 0;
-//           } else {
-//               // Stay in Low, increment pulseCounter
-//               state = SM7_Low;
-//               pwm_count++;
-//           }
-//           break;
-//
-//       default:
-//           break;
-//     }
-//     // Actions
-//     switch (state) {
-//       case SM7_Start:
-//           break;
-//
-//       case SM7_wait:
-//           break;
-//
-//       case SM7_High:
-//           PORTB = 0x01;
-//           break;
-//
-//       case SM7_Low:
-//           PORTB = 0x00;
-//           break;
-//
-//       default:
-//           break;
-//     }
-//     return state;
-// }
 
 // SM for winning LED flashing
 enum SM8_States { SM8_Start, SM8_On } sm8_state;
@@ -1316,6 +1288,13 @@ int main(void) {
 	  tasks[i].TickFct = &TickFct_JoyController;
     i++;
 
+    // SM5 (Button SM)
+    tasks[i].state = SM5_Start;
+	  tasks[i].period = 500;
+	  tasks[i].elapsedTime = tasks[i].period;
+	  tasks[i].TickFct = &TickFct_ButtonController;
+    i++;
+
     // SM6 (Dumb AI SM)
     tasks[i].state = SM6_Start;
 	  tasks[i].period = 500;
@@ -1335,12 +1314,6 @@ int main(void) {
     tasks[i].period = 100;
     tasks[i].elapsedTime = tasks[i].period;
     tasks[i].TickFct = &TickFct_Celebrate;
-
-    // // SM 7 (Led celebrate)
-    // tasks[i].state = SM7_Start;
-    // tasks[i].period = 1;
-    // tasks[i].elapsedTime = tasks[i].period;
-    // tasks[i].TickFct = &TickFct_Speaker;
 
     // Setup System Period & Timer to ON.
     TimerSet(tasksGCD);
